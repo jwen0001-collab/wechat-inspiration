@@ -5,3 +5,4 @@ imagehash
 rapidocr_onnxruntime
 requests
 imageio-ffmpeg
+python-multipart

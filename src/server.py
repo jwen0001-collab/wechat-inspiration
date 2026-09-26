@@ -1,9 +1,12 @@
 # -*- coding: utf-8 -*-
 """FastAPI 后端 + 本地网页界面。"""
+import hashlib
 import json
 import os
+import time
+import uuid
 
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, File, Form, Query, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -118,6 +121,82 @@ def api_recall(item_id: int, kind: str = Query("灵感")):
     con.commit()
     con.close()
     return {"ok": True}
+
+
+def _set_tags(con, item_id, tags):
+    con.execute("DELETE FROM item_tags WHERE item_id=?", (item_id,))
+    store._attach_tags(con, item_id, tags)
+
+
+def _norm_tags(tags):
+    if isinstance(tags, str):
+        tags = [t for t in tags.replace("，", ",").replace(" ", ",").split(",")]
+    return [t.strip() for t in (tags or []) if t and t.strip()]
+
+
+@app.post("/api/item/{item_id}/edit")
+def api_edit(item_id: int, payload: dict):
+    con = _con()
+    row = con.execute("SELECT id, captured_at FROM items WHERE id=?", (item_id,)).fetchone()
+    if not row:
+        con.close()
+        return JSONResponse({"error": "条目不存在"}, status_code=404)
+    kind = payload.get("kind", "灵感")
+    con.execute("UPDATE items SET kind=?, title=?, summary=?, tool_name=?, url=? WHERE id=?",
+                (kind, payload.get("title", ""), payload.get("summary", ""),
+                 payload.get("tool_name", ""), payload.get("url", ""), item_id))
+    _set_tags(con, item_id, _norm_tags(payload.get("tags")))
+    if kind == "工具" and payload.get("tool_name"):
+        store.upsert_tool(con, payload["tool_name"], payload.get("url", ""),
+                          payload.get("summary", ""), item_id, row["captured_at"] or "")
+    con.commit()
+    con.close()
+    return {"ok": True}
+
+
+@app.post("/api/item/{item_id}/delete")
+def api_delete(item_id: int):
+    con = _con()
+    # 指纹保留为 processed，重新导入不会再冒出来
+    con.execute("DELETE FROM tool_items WHERE item_id=?", (item_id,))
+    con.execute("DELETE FROM item_tags WHERE item_id=?", (item_id,))
+    con.execute("DELETE FROM items WHERE id=?", (item_id,))
+    con.commit()
+    con.close()
+    return {"ok": True}
+
+
+@app.post("/api/item/create")
+async def api_create(kind: str = Form("灵感"), title: str = Form(""),
+                     summary: str = Form(""), tags: str = Form(""),
+                     tool_name: str = Form(""), url: str = Form(""),
+                     image: UploadFile = File(None)):
+    con = _con()
+    image_path = ""
+    if image is not None:
+        data = await image.read()
+        if data:
+            ext = (os.path.splitext(image.filename or "")[1] or ".png").lstrip(".").lower()
+            name = "manual_" + hashlib.sha256(data).hexdigest()[:24] + "." + ext
+            with open(os.path.join(config.cache_dir(_CFG), name), "wb") as f:
+                f.write(data)
+            image_path = "cache/images/" + name
+    fp = "manual:" + uuid.uuid4().hex
+    cap = time.strftime("%Y-%m-%d %H:%M")
+    con.execute(
+        "INSERT INTO items(fingerprint,kind,title,summary,ocr_text,source_type,source_ref,"
+        "image_path,captured_at,tool_name,url,phash,extra_json,created_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (fp, kind, title, summary, summary, "manual", "手动添加", image_path, cap,
+         tool_name, url, None, "{}", int(time.time())))
+    iid = con.execute("SELECT id FROM items WHERE fingerprint=?", (fp,)).fetchone()[0]
+    _set_tags(con, iid, _norm_tags(tags))
+    store.mark(con, fp, "processed")
+    if kind == "工具" and tool_name:
+        store.upsert_tool(con, tool_name, url, summary, iid, cap)
+    con.commit()
+    con.close()
+    return {"ok": True, "id": iid}
 
 
 @app.post("/api/topics")

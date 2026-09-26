@@ -85,9 +85,25 @@
   .btn.ghost{background:var(--chip);color:var(--txt)}
   .topics{background:var(--panel);border:1px solid var(--line);border-radius:12px;
     padding:18px;white-space:pre-wrap;line-height:1.7;margin-top:14px}
+  .actions{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+  .mini{background:var(--chip);color:var(--txt);border:1px solid var(--line);
+    border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px}
+  .mini:hover{border-color:var(--accent)}
+  .mini.danger:hover{border-color:#e5484d;color:#e5484d}
   #lightbox{position:fixed;inset:0;background:rgba(0,0,0,.85);display:none;
     align-items:center;justify-content:center;z-index:100;cursor:zoom-out}
   #lightbox img{max-width:92vw;max-height:92vh;border-radius:8px}
+  #modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;
+    align-items:center;justify-content:center;z-index:110;padding:20px}
+  .dlg{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+    padding:22px;width:min(460px,94vw);max-height:90vh;overflow:auto}
+  .dlg h3{margin:0 0 14px}
+  .dlg label{display:block;font-size:12.5px;color:var(--dim);margin-bottom:12px}
+  .dlg input,.dlg textarea,.dlg select{width:100%;margin-top:5px;background:var(--panel2);
+    border:1px solid var(--line);color:var(--txt);border-radius:8px;padding:8px 10px;
+    font-size:14px;font-family:inherit;outline:none}
+  .dlg input:focus,.dlg textarea:focus,.dlg select:focus{border-color:var(--accent)}
+  .dlg-btns{display:flex;gap:10px;justify-content:flex-end;margin-top:6px}
   .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
   .hint{color:var(--dim);font-size:12.5px}
 </style>
@@ -104,6 +120,7 @@
     <button data-v="topics">灵感选题</button>
     <button data-v="junk">垃圾复核</button>
   </nav>
+  <button class="btn" onclick="openEdit(null)">+ 新增</button>
 </header>
 <div class="wrap">
   <aside id="side">
@@ -115,9 +132,35 @@
   <main id="main"></main>
 </div>
 <div id="lightbox"><img id="lbimg"></div>
+
+<div id="modal">
+  <div class="dlg">
+    <h3 id="dlgTitle">编辑</h3>
+    <input type="hidden" id="f_id">
+    <label>分类
+      <select id="f_kind">
+        <option value="灵感">灵感</option>
+        <option value="工具">工具</option>
+        <option value="垃圾">垃圾</option>
+        <option value="未分类">未分类</option>
+      </select>
+    </label>
+    <label>标题<input id="f_title" placeholder="简短标题"></label>
+    <label>摘要<textarea id="f_summary" rows="3" placeholder="一句话说明"></textarea></label>
+    <label>标签（逗号分隔）<input id="f_tags" placeholder="如 AI工具, 选题, 文案"></label>
+    <label>工具名（仅工具）<input id="f_tool" placeholder="规范产品名"></label>
+    <label>链接<input id="f_url" placeholder="https://"></label>
+    <label id="f_imgrow">图片（新增时可选）<input id="f_image" type="file" accept="image/*"></label>
+    <div class="dlg-btns">
+      <button class="btn ghost" onclick="closeEdit()">取消</button>
+      <button class="btn" onclick="saveEdit()">保存</button>
+    </div>
+  </div>
+</div>
 <script>
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 let state={view:'browse',q:'',kind:'',tag:''};
+window._items={};
 
 async function api(p,opt){const r=await fetch(p,opt);return r.json();}
 function esc(s){return (s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
@@ -138,7 +181,8 @@ async function loadTags(){
 window.setKind=k=>{state.kind=state.kind===k?'':k;state.view='browse';syncNav();render();loadStats();}
 window.setTag=t=>{state.tag=state.tag===t?'':t;state.view='browse';syncNav();render();loadTags();}
 
-function card(it){
+function card(it, extra=''){
+  window._items[it.id]=it;
   const img=it.image_path?`<img class="thumb" loading="lazy" src="/${it.image_path}" onclick="zoom(this.src)">`
     :`<div class="no-thumb">${esc(it.ocr_text||it.summary||'(无文字)')}</div>`;
   const tags=(it.tags||[]).map(t=>`<span>${esc(t)}</span>`).join('');
@@ -150,6 +194,10 @@ function card(it){
     ${it.url?`<a href="${esc(it.url)}" target="_blank" style="color:var(--accent);font-size:12px;word-break:break-all">${esc(it.url.slice(0,50))}</a>`:''}
     <div class="ctags">${tags}</div>
     <div class="meta"><span>${esc(it.captured_at||'')}</span><span>${esc(it.source_type)}</span></div>
+    <div class="actions">${extra}
+      <button class="mini" onclick="openEdit(${it.id})">编辑</button>
+      <button class="mini danger" onclick="delItem(${it.id})">删除</button>
+    </div>
   </div></div>`;
 }
 
@@ -184,8 +232,8 @@ async function render(){
   else if(state.view==='junk'){
     const items=await api('/api/junk?limit=200');
     m.innerHTML=`<div class="row"><span class="hint">被判为垃圾的内容（不进入库）。点"其实有用"召回。共 ${items.length} 条</span></div>`
-      +(items.length?`<div class="grid">${items.map(it=>card(it).replace('</div></div>',
-        `<button class="btn ghost" style="margin:0 12px 12px" onclick="recall(${it.id})">↺ 其实有用</button></div></div>`)).join('')}</div>`
+      +(items.length?`<div class="grid">${items.map(it=>card(it,
+        `<button class="mini" onclick="recall(${it.id})">↺ 其实有用</button>`)).join('')}</div>`
         :`<div class="empty">暂无垃圾条目。</div>`);
   }
 }
@@ -199,6 +247,45 @@ window.genTopics=async()=>{
     body:JSON.stringify({tag})});
   out.innerHTML = r.error?`<div class="empty">${esc(r.error)}</div>`:`<div class="topics">${esc(r.topics)}</div>`;
 }
+
+// ---- 新增 / 编辑 / 删除 ----
+window.openEdit=id=>{
+  const it = id!=null ? (window._items[id]||{}) : {};
+  $('#dlgTitle').textContent = id!=null ? '编辑条目' : '新增条目';
+  $('#f_id').value = id!=null ? id : '';
+  $('#f_kind').value = it.kind || '灵感';
+  $('#f_title').value = it.title || '';
+  $('#f_summary').value = it.summary || '';
+  $('#f_tags').value = (it.tags||[]).join(', ');
+  $('#f_tool').value = it.tool_name || '';
+  $('#f_url').value = it.url || '';
+  $('#f_image').value='';
+  $('#f_imgrow').style.display = id!=null ? 'none' : 'block';
+  $('#modal').style.display='flex';
+}
+window.closeEdit=()=>{$('#modal').style.display='none';}
+window.saveEdit=async()=>{
+  const id=$('#f_id').value;
+  const fields={kind:$('#f_kind').value,title:$('#f_title').value.trim(),
+    summary:$('#f_summary').value.trim(),tags:$('#f_tags').value,
+    tool_name:$('#f_tool').value.trim(),url:$('#f_url').value.trim()};
+  if(id){
+    await api('/api/item/'+id+'/edit',{method:'POST',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify(fields)});
+  }else{
+    const fd=new FormData();
+    Object.entries(fields).forEach(([k,v])=>fd.append(k,v));
+    const f=$('#f_image').files[0]; if(f) fd.append('image',f);
+    await fetch('/api/item/create',{method:'POST',body:fd});
+  }
+  closeEdit();render();loadStats();loadTags();
+}
+window.delItem=async id=>{
+  if(!confirm('确定删除这条？（原始截图/文件不受影响）'))return;
+  await api('/api/item/'+id+'/delete',{method:'POST'});
+  render();loadStats();loadTags();
+}
+$('#modal').addEventListener('click',e=>{if(e.target.id==='modal')closeEdit();});
 
 function syncNav(){$$('#views button').forEach(b=>b.classList.toggle('on',b.dataset.v===state.view));}
 $$('#views button').forEach(b=>b.onclick=()=>{state.view=b.dataset.v;syncNav();render();});
