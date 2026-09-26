@@ -1,0 +1,24 @@
+# 机密与密钥
+secrets.json
+*.key
+*.pem
+.env
+.env.*
+
+# 数据与缓存（本地生成，不入库）
+data/
+cache/
+inbox/
+*.db
+*.db-wal
+*.db-shm
+
+# 明文导出 / 解密图片（隐私）
+export_images/
+plain/
+
+# 运行时
+logs/
+*.log
+__pycache__/
+.venv/

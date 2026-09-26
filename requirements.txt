@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+Pillow
+imagehash
+rapidocr_onnxruntime
+requests
+imageio-ffmpeg
