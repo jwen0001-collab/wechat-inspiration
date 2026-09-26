@@ -7,6 +7,18 @@
 > "File Transfer" and organize them into a searchable, self-hosted knowledge
 > base — fully local, read-only on your original data.
 
+## 界面预览
+
+> 下图为**演示数据**，不含任何真实个人内容。
+
+**浏览 + 搜索**：按 灵感/工具/标签 筛选，搜索标题、摘要、图中文字。
+
+![浏览与搜索](docs/screenshots/browse.jpg)
+
+**工具库**：同一工具多次出现自动合并成一张卡（名称·出现次数·用途·官网·来源截图）。
+
+![工具库](docs/screenshots/tools.jpg)
+
 ## 为什么做这个
 
 很多人习惯把灵感、看到的好工具、文章链接随手发给微信文件传输助手，日积月累
